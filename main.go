@@ -1,9 +1,12 @@
 package main
 
 import (
-	"fmt"
+	b "blockman/types"
 )
 
 func main() {
-	fmt.Println("STARTING BLOCKMAN")
+	bc := b.NewBlockChain()
+	bc.Create(5, "hash 1")
+	bc.Create(2, "hash 2")
+	bc.Print()
 }
