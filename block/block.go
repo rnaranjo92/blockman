@@ -10,6 +10,12 @@ import (
 	"time"
 )
 
+const (
+	MINING_DIFFICULTY = 3
+	MINING_SENDER     = "THE BLOCKCHAIN"
+	MINING_REWARD     = 1.0
+)
+
 type Block struct {
 	Nonce        int              `json:"nonce"`
 	PreviousHash [32]byte         `json:"previous_hash"`
@@ -18,8 +24,9 @@ type Block struct {
 }
 
 type BlockChain struct {
-	transactionPool []*t.Transaction
-	chain           []*Block
+	transactionPool   []*t.Transaction
+	chain             []*Block
+	blockChainAddress string
 }
 
 func NewBlock(nonce int, previousHash [32]byte, transactions []*t.Transaction) *Block {
@@ -31,9 +38,9 @@ func NewBlock(nonce int, previousHash [32]byte, transactions []*t.Transaction) *
 	}
 }
 
-func NewBlockChain() *BlockChain {
+func NewBlockChain(blockChainAddress string) *BlockChain {
 	b := &Block{}
-	bc := &BlockChain{}
+	bc := &BlockChain{blockChainAddress: blockChainAddress}
 	bc.Create(0, b.Hash())
 	return bc
 }
@@ -53,7 +60,6 @@ func (b *Block) Hash() [32]byte {
 		log.Fatal("Error while running Hash function : ", err)
 		return [32]byte{}
 	}
-	fmt.Printf(string(m))
 	return sha256.Sum256(m)
 }
 
@@ -79,4 +85,60 @@ func (bc *BlockChain) Last() *Block {
 func (bc *BlockChain) AddTransaction(sender string, recipient string, value float32) {
 	t := t.NewTransaction(sender, recipient, value)
 	bc.transactionPool = append(bc.transactionPool, t)
+}
+
+func (bc *BlockChain) CopyTransactionPool() []*t.Transaction {
+	transactions := []*t.Transaction{}
+	for _, transaction := range bc.transactionPool {
+		transactions = append(transactions,
+			t.NewTransaction(transaction.SenderBlockchainAddress, transaction.RecipientBlockchainAddress, transaction.Value),
+		)
+	}
+	return transactions
+}
+
+func (bc *BlockChain) ValidProof(nonce int, previousHash [32]byte, transactions []*t.Transaction, difficulty int) bool {
+	zeros := strings.Repeat("0", difficulty)
+	guessBlock := Block{Timestamp: 0, Nonce: nonce, Transactions: transactions}
+	guessHash := fmt.Sprintf("%x", guessBlock.Hash())
+
+	return guessHash[:difficulty] == zeros
+}
+
+func (bc *BlockChain) ProofOfWork() int {
+	transactions := bc.CopyTransactionPool()
+	previousHash := bc.Last().Hash()
+	nonce := 0
+	for !bc.ValidProof(nonce, previousHash, transactions, MINING_DIFFICULTY) {
+		nonce++
+	}
+
+	return nonce
+}
+
+func (bc *BlockChain) Mining() bool {
+	bc.AddTransaction(MINING_SENDER, bc.blockChainAddress, MINING_REWARD)
+	nonce := bc.ProofOfWork()
+	previousHash := bc.Last().Hash()
+	bc.Create(nonce, previousHash)
+	log.Println("action=mining, status success")
+	return true
+}
+
+func (bc *BlockChain) CalculateTotalAmount(blockchainAddress string) float32 {
+	var totalAmount float32 = 0.0
+
+	for _, b := range bc.chain {
+		for _, t := range b.Transactions {
+			if blockchainAddress == t.RecipientBlockchainAddress {
+				totalAmount += t.Value
+			}
+
+			if blockchainAddress == t.SenderBlockchainAddress {
+				totalAmount -= t.Value
+			}
+		}
+	}
+
+	return totalAmount
 }
