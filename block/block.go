@@ -1,7 +1,9 @@
 package block
 
 import (
+	s "blockman/signature"
 	t "blockman/transaction"
+	"crypto/ecdsa"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -82,16 +84,38 @@ func (bc *BlockChain) Last() *Block {
 	return bc.chain[len(bc.chain)-1]
 }
 
-func (bc *BlockChain) AddTransaction(sender string, recipient string, value float32) {
-	t := t.NewTransaction(sender, recipient, value)
-	bc.transactionPool = append(bc.transactionPool, t)
+func (bc *BlockChain) AddTransaction(senderPublicKey *ecdsa.PublicKey, s *s.Signature, sender string, recipient string, value float32) bool {
+	t := NewTransaction(sender, recipient, value)
+
+	if sender == MINING_SENDER {
+		bc.transactionPool = append(bc.transactionPool, t)
+		return true
+	}
+
+	if bc.VerifyTransactionSignature(senderPublicKey, s, t) {
+		// if bc.CalculateTotalAmount(sender) < value {
+		// 	log.Println("ERROR: Not enough balance in a wallet")
+		// 	return false
+		// }
+		bc.transactionPool = append(bc.transactionPool, t)
+		return true
+	} else {
+		log.Println("ERROR : Verify Transaction")
+	}
+	return false
+}
+
+func (bc *BlockChain) VerifyTransactionSignature(senderPublicKey *ecdsa.PublicKey, s *s.Signature, t *t.Transaction) bool {
+	m, _ := t.MarshalJSON()
+	h := sha256.Sum256([]byte(m))
+	return ecdsa.Verify(senderPublicKey, h[:], s.R, s.S)
 }
 
 func (bc *BlockChain) CopyTransactionPool() []*t.Transaction {
 	transactions := []*t.Transaction{}
 	for _, transaction := range bc.transactionPool {
 		transactions = append(transactions,
-			t.NewTransaction(transaction.SenderBlockchainAddress, transaction.RecipientBlockchainAddress, transaction.Value),
+			t.NewTransaction(nil, nil, transaction.SenderBlockchainAddress, transaction.RecipientBlockchainAddress, transaction.Value),
 		)
 	}
 	return transactions
@@ -117,7 +141,7 @@ func (bc *BlockChain) ProofOfWork() int {
 }
 
 func (bc *BlockChain) Mining() bool {
-	bc.AddTransaction(MINING_SENDER, bc.blockChainAddress, MINING_REWARD)
+	bc.AddTransaction(nil, nil, MINING_SENDER, bc.blockChainAddress, MINING_REWARD)
 	nonce := bc.ProofOfWork()
 	previousHash := bc.Last().Hash()
 	bc.Create(nonce, previousHash)
@@ -141,4 +165,8 @@ func (bc *BlockChain) CalculateTotalAmount(blockchainAddress string) float32 {
 	}
 
 	return totalAmount
+}
+
+func NewTransaction(sender string, recipient string, value float32) *t.Transaction {
+	return &t.Transaction{SenderBlockchainAddress: sender, RecipientBlockchainAddress: recipient, Value: value}
 }
