@@ -5,6 +5,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 
 	"github.com/btcsuite/btcutil/base58"
@@ -55,6 +56,18 @@ func NewWallet() *Wallet {
 	return w
 }
 
+func (w *Wallet) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		PrivateKey        string `json:"private_key"`
+		PublicKey         string `json:"public_key"`
+		BlockChainAddress string `json:"blockchain_address"`
+	}{
+		PrivateKey:        w.GetPrivateKeyStr(),
+		PublicKey:         w.GetPublicKeyStr(),
+		BlockChainAddress: w.GetBlockChainAddress(),
+	})
+}
+
 func (w *Wallet) GetPrivateKey() *ecdsa.PrivateKey {
 	return w.PrivateKey
 }
@@ -68,9 +81,28 @@ func (w *Wallet) GetPublicKey() *ecdsa.PublicKey {
 }
 
 func (w *Wallet) GetPublicKeyStr() string {
-	return fmt.Sprintf("%x%x", w.PublicKey.X.Bytes(), w.PublicKey.Y.Bytes())
+	return fmt.Sprintf("%064x%064x", w.PublicKey.X.Bytes(), w.PublicKey.Y.Bytes())
 }
 
 func (w *Wallet) GetBlockChainAddress() string {
 	return w.BlockChainAddress
+}
+
+type TransactionRequest struct {
+	SenderPrivateKey           *string `json:"sender_private_key"`
+	SenderBlockchainAddress    *string `json:"sender_blockchain_address"`
+	SenderPublicKey            *string `json:"sender_public_key"`
+	RecipientBlockchainAddress *string `json:"recipient_blockchain_address"`
+	Value                      *string `json:"value"`
+}
+
+func (tr *TransactionRequest) Validate() bool {
+	if tr.SenderPrivateKey == nil ||
+		tr.SenderPublicKey == nil ||
+		tr.RecipientBlockchainAddress == nil ||
+		tr.SenderBlockchainAddress == nil ||
+		tr.Value == nil {
+		return false
+	}
+	return true
 }

@@ -20,7 +20,7 @@ const (
 
 type Block struct {
 	Nonce        int              `json:"nonce"`
-	PreviousHash [32]byte         `json:"previous_hash"`
+	PreviousHash string           `json:"previous_hash"`
 	Timestamp    int64            `json:"timestamp"`
 	Transactions []*t.Transaction `json:"transactions"`
 }
@@ -29,22 +29,31 @@ type BlockChain struct {
 	transactionPool   []*t.Transaction
 	chain             []*Block
 	blockChainAddress string
+	port              uint16
 }
 
 func NewBlock(nonce int, previousHash [32]byte, transactions []*t.Transaction) *Block {
 	return &Block{
 		Timestamp:    time.Now().UnixNano(),
 		Nonce:        nonce,
-		PreviousHash: previousHash,
+		PreviousHash: fmt.Sprintf("%x", previousHash),
 		Transactions: transactions,
 	}
 }
 
-func NewBlockChain(blockChainAddress string) *BlockChain {
+func NewBlockChain(blockChainAddress string, port uint16) *BlockChain {
 	b := &Block{}
-	bc := &BlockChain{blockChainAddress: blockChainAddress}
+	bc := &BlockChain{blockChainAddress: blockChainAddress, port: port}
 	bc.Create(0, b.Hash())
 	return bc
+}
+
+func (bc *BlockChain) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Blocks []*Block `json:"chains"`
+	}{
+		Blocks: bc.chain,
+	})
 }
 
 func (b *Block) Print() {
@@ -169,4 +178,23 @@ func (bc *BlockChain) CalculateTotalAmount(blockchainAddress string) float32 {
 
 func NewTransaction(sender string, recipient string, value float32) *t.Transaction {
 	return &t.Transaction{SenderBlockchainAddress: sender, RecipientBlockchainAddress: recipient, Value: value}
+}
+
+type TransactionRequest struct {
+	SenderBlockchainAddress    *string  `json:"sender_blockchain_address"`
+	RecipientBlockchainAddress *string  `json:"recipient_blockchain_address"`
+	SenderPublicKey            *string  `json:"sender_public_key"`
+	Value                      *float32 `json:"value"`
+	Signature                  *string  `json:"signature"`
+}
+
+func (tr *TransactionRequest) Validate() bool {
+	if tr.SenderPublicKey == nil ||
+		tr.RecipientBlockchainAddress == nil ||
+		tr.SenderBlockchainAddress == nil ||
+		tr.Value == nil ||
+		tr.Signature == nil {
+		return false
+	}
+	return true
 }

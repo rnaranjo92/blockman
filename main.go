@@ -1,12 +1,5 @@
 package main
 
-import (
-	"blockman/block"
-	transaction "blockman/transaction"
-	"blockman/wallet"
-	"fmt"
-)
-
 func main() {
 	// myBCAddress := "my_blockchain_address"
 	// bc := b.NewBlockChain(myBCAddress)
@@ -26,20 +19,20 @@ func main() {
 	// fmt.Printf("A %.1f\n", bc.CalculateTotalAmount("A"))
 	// fmt.Printf("D %.1f\n", bc.CalculateTotalAmount("D"))
 
-	walletM := wallet.NewWallet()
-	walletA := wallet.NewWallet()
-	walletB := wallet.NewWallet()
+	// walletM := wallet.NewWallet()
+	// walletA := wallet.NewWallet()
+	// walletB := wallet.NewWallet()
 
-	t := transaction.NewTransaction(walletA.PrivateKey, walletA.PublicKey, walletA.BlockChainAddress, walletB.BlockChainAddress, 1.0)
+	// t := transaction.NewTransaction(walletA.PrivateKey, walletA.PublicKey, walletA.BlockChainAddress, walletB.BlockChainAddress, 1.0)
 
-	blockchain := block.NewBlockChain(walletM.BlockChainAddress)
-	isAdded := blockchain.AddTransaction(walletA.PublicKey, t.GenerateSignature(), walletA.BlockChainAddress, walletB.BlockChainAddress, 1.0)
-	fmt.Println("Added? ", isAdded)
+	// blockchain := block.NewBlockChain(walletM.BlockChainAddress)
+	// isAdded := blockchain.AddTransaction(walletA.PublicKey, t.GenerateSignature(), walletA.BlockChainAddress, walletB.BlockChainAddress, 1.0)
+	// fmt.Println("Added? ", isAdded)
 
-	blockchain.Mining()
-	blockchain.Print()
+	// blockchain.Mining()
+	// blockchain.Print()
 
-	fmt.Printf("A %.1f\n", blockchain.CalculateTotalAmount(walletA.BlockChainAddress))
-	fmt.Printf("B %.1f\n", blockchain.CalculateTotalAmount(walletB.BlockChainAddress))
-	fmt.Printf("M %.1f\n", blockchain.CalculateTotalAmount(walletM.BlockChainAddress))
+	// fmt.Printf("A %.1f\n", blockchain.CalculateTotalAmount(walletA.BlockChainAddress))
+	// fmt.Printf("B %.1f\n", blockchain.CalculateTotalAmount(walletB.BlockChainAddress))
+	// fmt.Printf("M %.1f\n", blockchain.CalculateTotalAmount(walletM.BlockChainAddress))
 }
