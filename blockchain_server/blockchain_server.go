@@ -2,6 +2,8 @@ package main
 
 import (
 	"blockman/block"
+	"blockman/transaction"
+	"blockman/utils"
 	"blockman/wallet"
 	"encoding/json"
 	"io"
@@ -54,21 +56,75 @@ func (bcs *BlockChainServer) GetChain(w http.ResponseWriter, req *http.Request) 
 func (bcs *BlockChainServer) Transactions(w http.ResponseWriter, req *http.Request) {
 	switch req.Method {
 	case http.MethodGet:
-		// Work on this later
+		w.Header().Add("Content-Type", "application/json")
+		bc := bcs.GetBlockchain()
+		transactions := bc.TransactionPool()
+		m, _ := json.Marshal(struct {
+			Transactions []*transaction.Transaction `json:"transactions"`
+			Length       int                        `json:"length"`
+		}{
+			Transactions: transactions,
+			Length:       len(transactions),
+		})
+		io.WriteString(w, string(m[:]))
 	case http.MethodPost:
 		decoder := json.NewDecoder(req.Body)
 		var t block.TransactionRequest
 		err := decoder.Decode(&t)
 		if err != nil {
 			log.Println("ERROR: %v", err)
-			io.WriteString()
+			io.WriteString(w, string(utils.JsonStatus("fail")))
+			return
 		}
+		if !t.Validate() {
+			log.Println("ERROR: %v", err)
+			io.WriteString(w, string(utils.JsonStatus("fail")))
+			return
+		}
+		publicKey := utils.PublicKeyFromString(*t.SenderPublicKey)
+		signature := utils.SignatureFromString(*t.Signature)
+		bc := bcs.GetBlockchain()
+		isCreated := bc.CreateTransaction(publicKey, signature, *t.SenderBlockchainAddress, *t.RecipientBlockchainAddress, *t.Value)
+
+		w.Header().Add("Content-Type", "application/json")
+		var m []byte
+		if !isCreated {
+			w.WriteHeader(http.StatusBadGateway)
+			m = utils.JsonStatus("fail")
+		} else {
+			w.WriteHeader(http.StatusCreated)
+			m = utils.JsonStatus("succcess")
+		}
+		io.WriteString(w, string(m))
 	default:
 
 	}
 }
 
+func (bcs *BlockChainServer) Mine(w http.ResponseWriter, req *http.Request) {
+	switch req.Method {
+	case http.MethodGet:
+		bc := bcs.GetBlockchain()
+		isMined := bc.Mining()
+
+		var m []byte
+		if !isMined {
+			w.WriteHeader(http.StatusBadRequest)
+			m = utils.JsonStatus("fail")
+		} else {
+			m = utils.JsonStatus("success")
+		}
+		w.Header().Add("Content-Type", "application/json")
+		io.WriteString(w, string(m))
+	default:
+		log.Println("ERROR: Invalid HTTP Method")
+		w.WriteHeader(http.StatusBadRequest)
+	}
+}
+
 func (bcs *BlockChainServer) Run() {
 	http.HandleFunc("/", bcs.GetChain)
+	http.HandleFunc("/transactions", bcs.Transactions)
+	http.HandleFunc("/mine", bcs.Mine)
 	log.Fatal(http.ListenAndServe("0.0.0.0:"+strconv.Itoa(int(bcs.Port())), nil))
 }
