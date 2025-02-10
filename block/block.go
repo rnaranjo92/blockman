@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -16,6 +17,7 @@ const (
 	MINING_DIFFICULTY = 3
 	MINING_SENDER     = "THE BLOCKCHAIN"
 	MINING_REWARD     = 1.0
+	MINING_TIMER_SEC  = 20
 )
 
 type Block struct {
@@ -30,6 +32,7 @@ type BlockChain struct {
 	chain             []*Block
 	blockChainAddress string
 	port              uint16
+	mux               sync.Mutex
 }
 
 func NewBlock(nonce int, previousHash [32]byte, transactions []*t.Transaction) *Block {
@@ -160,12 +163,24 @@ func (bc *BlockChain) ProofOfWork() int {
 }
 
 func (bc *BlockChain) Mining() bool {
+	bc.mux.Lock()
+	defer bc.mux.Unlock()
+
+	if len(bc.transactionPool) == 0 {
+		return false
+	}
+
 	bc.AddTransaction(nil, nil, MINING_SENDER, bc.blockChainAddress, MINING_REWARD)
 	nonce := bc.ProofOfWork()
 	previousHash := bc.Last().Hash()
 	bc.Create(nonce, previousHash)
 	log.Println("action=mining, status success")
 	return true
+}
+
+func (bc *BlockChain) StartMining() {
+	bc.Mining()
+	_ = time.AfterFunc(time.Second*MINING_TIMER_SEC, bc.StartMining)
 }
 
 func (bc *BlockChain) CalculateTotalAmount(blockchainAddress string) float32 {
@@ -207,4 +222,16 @@ func (tr *TransactionRequest) Validate() bool {
 		return false
 	}
 	return true
+}
+
+type AmountResponse struct {
+Amount float32 `json:"amount"`
+}
+
+func (ar *AmountResponse) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Amount float32 `json"amount"`
+	}{
+		Amount: ar.Amount,
+	})
 }
