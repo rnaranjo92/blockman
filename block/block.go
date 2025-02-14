@@ -3,6 +3,7 @@ package block
 import (
 	s "blockman/signature"
 	t "blockman/transaction"
+	"blockman/utils"
 	"crypto/ecdsa"
 	"crypto/sha256"
 	"encoding/json"
@@ -18,6 +19,12 @@ const (
 	MINING_SENDER     = "THE BLOCKCHAIN"
 	MINING_REWARD     = 1.0
 	MINING_TIMER_SEC  = 20
+
+	BLOCKCHAIN_PORT_RANGE_START       = 5000
+	BLOCKCHAIN_PORT_RANGE_END         = 5003
+	NEIGHBOR_IP_RANGE_START           = 0
+	NEIGHBOR_IP_RANGE_END             = 1
+	BLOCKCHAIN_NEIGHBOR_SYNC_TIME_SEC = 20
 )
 
 type Block struct {
@@ -33,6 +40,9 @@ type BlockChain struct {
 	blockChainAddress string
 	port              uint16
 	mux               sync.Mutex
+
+	neighbors    []string
+	muxNeighbors sync.Mutex
 }
 
 func NewBlock(nonce int, previousHash [32]byte, transactions []*t.Transaction) *Block {
@@ -53,6 +63,26 @@ func NewBlockChain(blockChainAddress string, port uint16) *BlockChain {
 
 func (bc *BlockChain) TransactionPool() []*t.Transaction {
 	return bc.transactionPool
+}
+
+func (bc *BlockChain) Run() {
+	bc.StartSyncNeighbors()
+}
+
+func (bc *BlockChain) SetNeighbors() {
+	bc.neighbors = utils.FindNeighbors("127.0.0.1", bc.port, NEIGHBOR_IP_RANGE_START, NEIGHBOR_IP_RANGE_END, BLOCKCHAIN_PORT_RANGE_START, BLOCKCHAIN_PORT_RANGE_END)
+	log.Printf("%v", bc.neighbors)
+}
+
+func (bc *BlockChain) SyncNeighbors() {
+	bc.muxNeighbors.Lock()
+	defer bc.muxNeighbors.Unlock()
+	bc.SetNeighbors()
+}
+
+func (bc *BlockChain) StartSyncNeighbors() {
+	bc.SyncNeighbors()
+	_ = time.AfterFunc(time.Second*BLOCKCHAIN_NEIGHBOR_SYNC_TIME_SEC, bc.StartSyncNeighbors)
 }
 
 func (bc *BlockChain) MarshalJSON() ([]byte, error) {
@@ -225,7 +255,7 @@ func (tr *TransactionRequest) Validate() bool {
 }
 
 type AmountResponse struct {
-Amount float32 `json:"amount"`
+	Amount float32 `json:"amount"`
 }
 
 func (ar *AmountResponse) MarshalJSON() ([]byte, error) {
