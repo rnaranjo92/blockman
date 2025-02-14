@@ -4,11 +4,14 @@ import (
 	s "blockman/signature"
 	t "blockman/transaction"
 	"blockman/utils"
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -29,7 +32,7 @@ const (
 
 type Block struct {
 	Nonce        int              `json:"nonce"`
-	PreviousHash string           `json:"previous_hash"`
+	PreviousHash [32]byte         `json:"previous_hash"`
 	Timestamp    int64            `json:"timestamp"`
 	Transactions []*t.Transaction `json:"transactions"`
 }
@@ -49,9 +52,25 @@ func NewBlock(nonce int, previousHash [32]byte, transactions []*t.Transaction) *
 	return &Block{
 		Timestamp:    time.Now().UnixNano(),
 		Nonce:        nonce,
-		PreviousHash: fmt.Sprintf("%x", previousHash),
+		PreviousHash: previousHash,
 		Transactions: transactions,
 	}
+}
+
+func (bc *BlockChain) GetChain() []*Block {
+	return bc.chain
+}
+
+func (b *Block) GetPreviousHash() [32]byte {
+	return b.PreviousHash
+}
+
+func (b *Block) GetNonce() int {
+	return b.Nonce
+}
+
+func (b *Block) GetTransactions() []*t.Transaction {
+	return b.Transactions
 }
 
 func NewBlockChain(blockChainAddress string, port uint16) *BlockChain {
@@ -67,6 +86,8 @@ func (bc *BlockChain) TransactionPool() []*t.Transaction {
 
 func (bc *BlockChain) Run() {
 	bc.StartSyncNeighbors()
+	bc.ResolveConflicts()
+	bc.StartMining()
 }
 
 func (bc *BlockChain) SetNeighbors() {
@@ -85,12 +106,30 @@ func (bc *BlockChain) StartSyncNeighbors() {
 	_ = time.AfterFunc(time.Second*BLOCKCHAIN_NEIGHBOR_SYNC_TIME_SEC, bc.StartSyncNeighbors)
 }
 
+func (bc *BlockChain) ClearTransactionPoo() {
+	bc.transactionPool = bc.transactionPool[:0]
+}
+
 func (bc *BlockChain) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		Blocks []*Block `json:"chains"`
 	}{
 		Blocks: bc.chain,
 	})
+}
+
+func (bc *BlockChain) UnmarshalJSON(data []byte) error {
+	v := struct {
+		Blocks *[]*Block `json:"chains"`
+	}{
+		Blocks: &bc.chain,
+	}
+
+	if err := json.Unmarshal(data, &v); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (b *Block) Print() {
@@ -100,6 +139,28 @@ func (b *Block) Print() {
 	for _, transaction := range b.Transactions {
 		transaction.Print()
 	}
+}
+
+func (b *Block) UnmarshalJSON(data []byte) error {
+	v := &struct {
+		Timestamp    *int64            `json:"timestamp"`
+		Nonce        *int              `json:"none"`
+		PreviousHash *string           `json:"previous_hash"`
+		Transaction  *[]*t.Transaction `json:"transactions"`
+	}{
+		Timestamp:    &b.Timestamp,
+		Nonce:        &b.Nonce,
+		PreviousHash: nil, //for now
+		Transaction:  &b.Transactions,
+	}
+
+	if err := json.Unmarshal(data, v); err != nil {
+		return err
+	}
+
+	ph, _ := hex.DecodeString(*v.PreviousHash)
+	copy(b.PreviousHash[:], ph[:32])
+	return nil
 }
 
 func (b *Block) Hash() [32]byte {
@@ -123,6 +184,13 @@ func (bc *BlockChain) Create(nonce int, previousHash [32]byte) *Block {
 	b := NewBlock(nonce, previousHash, bc.transactionPool)
 	bc.chain = append(bc.chain, b)
 	bc.transactionPool = []*t.Transaction{}
+	for _, n := range bc.neighbors {
+		endpoint := fmt.Sprintf("http://%s/transactions", n)
+		client := &http.Client{}
+		req, _ := http.NewRequest("DELETE", endpoint, nil)
+		resp, _ := client.Do(req)
+		log.Printf("%v", resp)
+	}
 	return b
 }
 
@@ -132,6 +200,22 @@ func (bc *BlockChain) Last() *Block {
 
 func (bc *BlockChain) CreateTransaction(senderPublicKey *ecdsa.PublicKey, s *s.Signature, sender string, recipient string, value float32) bool {
 	isTransacted := bc.AddTransaction(senderPublicKey, s, sender, recipient, value)
+
+	if isTransacted {
+		for _, n := range bc.neighbors {
+			publicKeyStr := fmt.Sprintf("%064x%064x", senderPublicKey.X.Bytes(), senderPublicKey.Y.Bytes())
+			signatureStr := s.String()
+			bt := &TransactionRequest{
+				&sender, &recipient, &publicKeyStr, &value, &signatureStr}
+			m, _ := json.Marshal(bt)
+			buf := bytes.NewBuffer(m)
+			endpoint := fmt.Sprintf("http://%s/transactions", n)
+			client := &http.Client{}
+			req, _ := http.NewRequest("PUT", endpoint, buf)
+			resp, _ := client.Do(req)
+			log.Printf("%v", resp)
+		}
+	}
 
 	return isTransacted
 }
@@ -145,10 +229,10 @@ func (bc *BlockChain) AddTransaction(senderPublicKey *ecdsa.PublicKey, s *s.Sign
 	}
 
 	if bc.VerifyTransactionSignature(senderPublicKey, s, t) {
-		// if bc.CalculateTotalAmount(sender) < value {
-		// 	log.Println("ERROR: Not enough balance in a wallet")
-		// 	return false
-		// }
+		if bc.CalculateTotalAmount(sender) < value {
+			log.Println("ERROR: Not enough balance in a wallet")
+			return false
+		}
 		bc.transactionPool = append(bc.transactionPool, t)
 		return true
 	} else {
@@ -196,15 +280,24 @@ func (bc *BlockChain) Mining() bool {
 	bc.mux.Lock()
 	defer bc.mux.Unlock()
 
-	if len(bc.transactionPool) == 0 {
-		return false
-	}
+	// if len(bc.transactionPool) == 0 {
+	// 	return false
+	// }
 
 	bc.AddTransaction(nil, nil, MINING_SENDER, bc.blockChainAddress, MINING_REWARD)
 	nonce := bc.ProofOfWork()
 	previousHash := bc.Last().Hash()
 	bc.Create(nonce, previousHash)
 	log.Println("action=mining, status success")
+
+	for _, n := range bc.neighbors {
+		endpoint := fmt.Sprintf("http://%s/concensus", n)
+		client := &http.Client{}
+		req, _ := http.NewRequest("PUT", endpoint, nil)
+		resp, _ := client.Do(req)
+		log.Printf("%v", resp)
+	}
+
 	return true
 }
 
@@ -229,6 +322,54 @@ func (bc *BlockChain) CalculateTotalAmount(blockchainAddress string) float32 {
 	}
 
 	return totalAmount
+}
+
+func (bc *BlockChain) ValidChain(chain []*Block) bool {
+	preBlock := chain[0]
+	currentIdx := 1
+	for currentIdx < len(chain) {
+		b := chain[currentIdx]
+		if b.PreviousHash != preBlock.Hash() {
+			return false
+		}
+
+		if !bc.ValidProof(b.Nonce, b.GetPreviousHash(), b.GetTransactions(), MINING_DIFFICULTY) {
+			return false
+		}
+
+		preBlock = b
+		currentIdx++
+	}
+
+	return true
+}
+
+func (bc *BlockChain) ResolveConflicts() bool {
+	var longestChain []*Block = nil
+	maxLength := len(bc.chain)
+
+	for _, n := range bc.neighbors {
+		endpoint := fmt.Sprintf("http://%s/chain", n)
+		resp, _ := http.Get(endpoint)
+		if resp.StatusCode == 200 {
+			var bcResp BlockChain
+			decoder := json.NewDecoder(resp.Body)
+			_ = decoder.Decode(&bcResp)
+
+			chain := bcResp.GetChain()
+			if len(chain) > maxLength && bc.ValidChain(chain) {
+				maxLength = len(chain)
+				longestChain = chain
+			}
+		}
+	}
+	if longestChain != nil {
+		bc.chain = longestChain
+		log.Printf("Resolve Conflicts Replaced")
+		return true
+	}
+	log.Printf("Resolve Conflicts Not Replaced")
+	return false
 }
 
 func NewTransaction(sender string, recipient string, value float32) *t.Transaction {

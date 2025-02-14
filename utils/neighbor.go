@@ -5,7 +5,6 @@ import (
 	"net"
 	"os"
 	"regexp"
-	"strconv"
 	"time"
 )
 
@@ -29,18 +28,18 @@ func FindNeighbors(myHost string, myPort uint16, startIp uint8, endIp uint8, sta
 	if m == nil {
 		return nil
 	}
-	prefixHost := m[1]
-	lastIp, _ := strconv.Atoi(m[len(m)-1])
+	// prefixHost := m[1]
+	// lastIp, _ := strconv.Atoi(m[len(m)-1])
 	neighbors := make([]string, 0)
 
 	for port := startPort; port <= endPort; port += 1 {
-		for ip := startIp; ip <= endIp; ip += 1 {
-			guessHost := fmt.Sprintf("%s%d", prefixHost, lastIp+int(ip))
-			guessTarget := fmt.Sprintf("%s:%d", guessHost, port)
-			if guessTarget != address && IsFoundHost(guessHost, port) {
-				neighbors = append(neighbors, guessTarget)
-			}
+		// for ip := startIp; ip <= endIp; ip += 1 {
+		// guessHost := fmt.Sprintf("%s%d", prefixHost, lastIp+int(ip))
+		guessTarget := fmt.Sprintf("%s:%d", "127.0.0.1", port)
+		if guessTarget != address && IsFoundHost("127.0.0.1", port) {
+			neighbors = append(neighbors, guessTarget)
 		}
+		// }
 	}
 	return neighbors
 }
